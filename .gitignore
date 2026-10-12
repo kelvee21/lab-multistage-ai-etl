@@ -1,0 +1,17 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Bakery business data, never commit
+data/raw/
+data/processed/
+runs/*.log
+
+# my own prep notes, not part of the lab
+docs/PRESENTATION.md
+
+# OS noise
+Thumbs.db
+Desktop.ini
