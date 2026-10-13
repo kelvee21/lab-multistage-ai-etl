@@ -1,0 +1,96 @@
+{
+  "version": "1.0.0",
+  "title": "BROOD DataOps extraction contract",
+  "provenance": "first pass. i opened the first few tabs of each june file and wrote down what i saw. this is not finished, i still have to look at every tab.",
+  "conventions": {
+    "text_normalisation": "trim, collapse spaces inside, uppercase. that is all.",
+    "blank_cell_semantics": "a blank qty cell means not recorded. it is not 0 and it is not data.",
+    "numeric_rule": "excel numbers as they are. text has to be digits or it becomes non_numeric_qty.",
+    "date_rule": "the day comes from the tab name, the month and year from this contract.",
+    "dup_policy_day_grid": "first row wins for a (date, product, branch) key."
+  },
+  "branch_headers": [
+    "HQ", "K'KIRO", "RBERO", "NBOYE", "CHIC", "M'HIMA", "N'RAMA", "KGU",
+    "RMRA", "K'IMENTI", "G YEAR", "FZONE"
+  ],
+  "sources": [
+    {
+      "id": "production",
+      "file": "PRODUCTION REPORT JUNE 2026.xlsx",
+      "fact": "production",
+      "grid": "day",
+      "period": { "year": 2026, "month": 6 },
+      "expected_days": { "from": 1, "to": 30 },
+      "day_sheet": { "regex": "^(\\d{1,2})(?:ST|ND|RD|TH)?\\s*(?:JUN|JUNE)?\\s*$", "fix_letter_O": true },
+      "header_search_rows": 1,
+      "item_header": "ITEM",
+      "branch_aliases": {},
+      "ignore_columns": {},
+      "row_total_column": "",
+      "aggregate_rows": [],
+      "ignore_sheets": {},
+      "notes": []
+    },
+    {
+      "id": "dispatch",
+      "file": "DISPATCH REPORT JUNE 2026.xlsx",
+      "fact": "dispatch",
+      "grid": "day",
+      "period": { "year": 2026, "month": 6 },
+      "expected_days": { "from": 1, "to": 30 },
+      "day_sheet": { "regex": "^(\\d{1,2})(?:ST|ND|RD|TH)?\\s*(?:JUN|JUNE)?\\s*$", "fix_letter_O": true },
+      "header_search_rows": 1,
+      "item_header": "ITEM",
+      "branch_aliases": {},
+      "ignore_columns": {},
+      "row_total_column": "",
+      "aggregate_rows": [],
+      "ignore_sheets": {},
+      "notes": [
+        "most of these tabs have a second table sitting to the right of the branch grid. need to look at what its columns are called."
+      ]
+    },
+    {
+      "id": "waste",
+      "file": "WASTE REPORT JUNE 2026.xlsx",
+      "fact": "waste",
+      "grid": "day",
+      "period": { "year": 2026, "month": 6 },
+      "expected_days": { "from": 1, "to": 30 },
+      "day_sheet": { "regex": "^(\\d{1,2})(?:ST|ND|RD|TH)?\\s*(?:JUN|JUNE)?\\s*$", "fix_letter_O": false },
+      "header_search_rows": 1,
+      "item_header": "ITEM",
+      "branch_aliases": {},
+      "ignore_columns": {},
+      "row_total_column": "",
+      "aggregate_rows": [],
+      "ignore_sheets": {},
+      "notes": [
+        "waste is sparse, usually single units."
+      ]
+    },
+    {
+      "id": "returns",
+      "file": "RETURNS  REPORT JUNE 2026.xlsx",
+      "fact": "returns",
+      "grid": "day",
+      "period": { "year": 2026, "month": 6 },
+      "expected_days": { "from": 1, "to": 6 },
+      "day_sheet": { "regex": "^(\\d{1,2})(?:ST|ND|RD|TH)?\\s*(?:JUN|JUNE)?\\s*$", "fix_letter_O": false },
+      "header_search_rows": 1,
+      "item_header": "ITEM",
+      "branch_aliases": {},
+      "ignore_columns": {},
+      "row_total_column": "",
+      "aggregate_rows": [],
+      "ignore_sheets": {},
+      "notes": [
+        "these 6 tabs look empty but i have only checked the first one properly."
+      ]
+    }
+  ],
+  "open_questions": [
+    "the unit of the numbers is not written anywhere in the files.",
+    "the dispatch variance table on the right of the tabs is not mapped yet."
+  ]
+}
