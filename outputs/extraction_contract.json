@@ -1,17 +1,34 @@
 {
-  "version": "1.0.0",
+  "version": "1.0.1",
   "title": "BROOD DataOps extraction contract",
-  "provenance": "first pass. i opened the first few tabs of each june file and wrote down what i saw. this is not finished, i still have to look at every tab.",
+  "provenance": "second pass. i looped over every tab in all four june files with tools/inspect_workbook.py instead of the first few. that found 2 more branches and most of the ignore_columns.",
   "conventions": {
-    "text_normalisation": "trim, collapse spaces inside, uppercase. that is all.",
-    "blank_cell_semantics": "a blank qty cell means not recorded. it is not 0 and it is not data.",
-    "numeric_rule": "excel numbers as they are. text has to be digits or it becomes non_numeric_qty.",
-    "date_rule": "the day comes from the tab name, the month and year from this contract.",
-    "dup_policy_day_grid": "first row wins for a (date, product, branch) key."
+    "text_normalisation": "trim, collapse spaces inside, uppercase. that is all. no spelling fixes apart from the aliases listed below. G YEAR and FZONE stay as typed because I do not know the real names.",
+    "blank_cell_semantics": "a blank qty cell means not recorded. it is not 0 and it is not data. a tab where every product row is blank still counts as a tab, it loads 0 rows and the gap goes in the report.",
+    "numeric_rule": "excel numbers as they are, rounded to 6 dp to drop float dust. text cells: strip spaces, digits only, or one comma with exactly 3 digits after it which is a thousands separator. anything else becomes non_numeric_qty.",
+    "date_rule": "day tabs have no date cells. the day comes from the tab name, the month and year from this contract. sales tabs carry dd.mm.yyyy dates. both end up as YYYY-MM-DD. the sales files say 2023 and the june files say 2026, I keep what each file states.",
+    "dup_policy_day_grid": "for a (date, product, branch) key the first row wins, later ones go to quarantine as duplicate_key.",
+    "ignore_columns": "columns in ignore_columns are not facts: the row totals, the prices and the money values. i drop them by contract. every tab that had something in one of them gets a note so the drop is visible.",
+    "aggregate_rows": "each tab ends with a row whose item says TOTAL. that row is not a product and never loads as one. if a value was typed into its branch cells I quarantine it as aggregate_row_value.",
+    "row_total_column": "when a source gives me the sheet's own TOTAL or TOTAL QUANTITY column I compare it to the sum of the branch cells I parsed from that row. rows that disagree become an anomaly note. I still load the row, the sheet's total is a hint not a gate.",
+    "unnamed_columns": "a column with no header text but with values under it. I cannot name it so I will not load it. the report tells me how many values were sitting in it.",
+    "branch_aliases": "when a branch header is typed wrong but clearly sits in the branch spot I map it with an alias and add a note every time the alias is used."
   },
   "branch_headers": [
-    "HQ", "K'KIRO", "RBERO", "NBOYE", "CHIC", "M'HIMA", "N'RAMA", "KGU",
-    "RMRA", "K'IMENTI", "G YEAR", "FZONE"
+    "HQ",
+    "K'KIRO",
+    "RBERO",
+    "NBOYE",
+    "CHIC",
+    "M'HIMA",
+    "N'RAMA",
+    "KGU",
+    "RMRA",
+    "K'IMENTI",
+    "G YEAR",
+    "FZONE",
+    "VISTA",
+    "C SHOP"
   ],
   "sources": [
     {
@@ -19,35 +36,92 @@
       "file": "PRODUCTION REPORT JUNE 2026.xlsx",
       "fact": "production",
       "grid": "day",
-      "period": { "year": 2026, "month": 6 },
-      "expected_days": { "from": 1, "to": 30 },
-      "day_sheet": { "regex": "^(\\d{1,2})(?:ST|ND|RD|TH)?\\s*(?:JUN|JUNE)?\\s*$", "fix_letter_O": true },
-      "header_search_rows": 1,
+      "period": {
+        "year": 2026,
+        "month": 6
+      },
+      "expected_days": {
+        "from": 1,
+        "to": 30
+      },
+      "day_sheet": {
+        "regex": "^(\\d{1,2})(?:ST|ND|RD|TH)?\\s*(?:JUN|JUNE)?\\s*$",
+        "fix_letter_O": true
+      },
+      "header_search_rows": 3,
       "item_header": "ITEM",
       "branch_aliases": {},
-      "ignore_columns": {},
-      "row_total_column": "",
-      "aggregate_rows": [],
-      "ignore_sheets": {},
-      "notes": []
+      "ignore_columns": {
+        "TOTAL": "sum of the branch cells on that row, not a 15th branch",
+        "UNIT": "unit price, only on the 1st tab",
+        "PRICE": "unit price, typed on some tabs",
+        "TOTAL COST": "money column, the arithmetic in the file does not add up",
+        "VALUE": "money column on the 1OTH JUNE tab"
+      },
+      "row_total_column": "TOTAL",
+      "aggregate_rows": [
+        "TOTAL"
+      ],
+      "ignore_sheets": {
+        "SUMMARY": "month summary in RWF, not units. cannot be lined up with the day tabs so the contract drops it"
+      },
+      "notes": [
+        "26 tabs here. 25 are day tabs and they cover the 1st to the 25th. there is no tab at all for the 26th to the 30th, so expected_days says 1-30 and the report shows that 5 days are simply not in the file. i am not going to invent them.",
+        "the 19th to the 25th tabs each have exactly one product row recorded. i checked this rather than trusting the first look, which had told me those tabs were empty.",
+        "the tab named 1OTH JUNE has the letter O where the 0 should be. fix_letter_O reads it as day 10, and there is no other 10th tab, so nothing collides.",
+        "late month tabs carry PRICE / TOTAL COST / VALUE. they are in ignore_columns so they stay out of the facts and are still visible in the report."
+      ]
     },
     {
       "id": "dispatch",
       "file": "DISPATCH REPORT JUNE 2026.xlsx",
       "fact": "dispatch",
       "grid": "day",
-      "period": { "year": 2026, "month": 6 },
-      "expected_days": { "from": 1, "to": 30 },
-      "day_sheet": { "regex": "^(\\d{1,2})(?:ST|ND|RD|TH)?\\s*(?:JUN|JUNE)?\\s*$", "fix_letter_O": true },
-      "header_search_rows": 1,
+      "period": {
+        "year": 2026,
+        "month": 6
+      },
+      "expected_days": {
+        "from": 1,
+        "to": 30
+      },
+      "day_sheet": {
+        "regex": "^(\\d{1,2})(?:ST|ND|RD|TH)?\\s*(?:JUN|JUNE)?\\s*$",
+        "fix_letter_O": true
+      },
+      "header_search_rows": 3,
       "item_header": "ITEM",
       "branch_aliases": {},
-      "ignore_columns": {},
-      "row_total_column": "",
-      "aggregate_rows": [],
-      "ignore_sheets": {},
+      "ignore_columns": {
+        "TOTAL": "sum of the branch cells on that row",
+        "UNIT": "unit price on the 1st tab",
+        "PRICE": "unit price, typed on most tabs",
+        "TOTAL COST": "money column",
+        "AMOUNT": "money column on the 14th tab",
+        "ITEM": "the second ITEM header belongs to the side variance table, not to this grid",
+        "PRODUCTION": "variance table",
+        "VALUE": "variance table, shows up twice so it is ignored twice",
+        "DISPACH": "variance table, the clerk spelled dispatch without the T",
+        "VARIANCE": "variance table",
+        "VARIANCE VALUE": "variance table",
+        "CLOSING": "stock side column on the 1st and 14th tabs"
+      },
+      "row_total_column": "TOTAL",
+      "aggregate_rows": [
+        "TOTAL"
+      ],
+      "ignore_sheets": {
+        "PRODUCTION VARIANCE": "aggregate variance sheet, not a day tab",
+        "PRODUCTION": "half filled month sheet, not a day tab",
+        "TEST": "not a data tab, that is what it is called",
+        "DISPATCH VS PRODUCTION": "comparison sheet, not a day tab",
+        "SUMMARY": "money summary, same as production"
+      },
       "notes": [
-        "most of these tabs have a second table sitting to the right of the branch grid. need to look at what its columns are called."
+        "some day tabs put a number in column A above the header, the 22nd one does. the header search walks down until it finds ITEM, and column A is always the row number.",
+        "most tabs have a variance and stock table sitting to the right of the branch grid. its columns are all in ignore_columns.",
+        "the 1OTH JUNE letter O tab is read as day 10, same as production.",
+        "one value was typed inside the TOTAL row of the 22nd tab. aggregate_rows puts it in quarantine."
       ]
     },
     {
@@ -55,18 +129,40 @@
       "file": "WASTE REPORT JUNE 2026.xlsx",
       "fact": "waste",
       "grid": "day",
-      "period": { "year": 2026, "month": 6 },
-      "expected_days": { "from": 1, "to": 30 },
-      "day_sheet": { "regex": "^(\\d{1,2})(?:ST|ND|RD|TH)?\\s*(?:JUN|JUNE)?\\s*$", "fix_letter_O": false },
-      "header_search_rows": 1,
+      "period": {
+        "year": 2026,
+        "month": 6
+      },
+      "expected_days": {
+        "from": 1,
+        "to": 30
+      },
+      "day_sheet": {
+        "regex": "^(\\d{1,2})(?:ST|ND|RD|TH)?\\s*(?:JUN|JUNE)?\\s*$",
+        "fix_letter_O": false
+      },
+      "header_search_rows": 3,
       "item_header": "ITEM",
-      "branch_aliases": {},
-      "ignore_columns": {},
-      "row_total_column": "",
-      "aggregate_rows": [],
-      "ignore_sheets": {},
+      "branch_aliases": {
+        "GDYEAR": "G YEAR"
+      },
+      "ignore_columns": {
+        "TOTAL QUANTITY": "sum of the branch cells on that row",
+        "TOTAL": "money value at the bottom right",
+        "AMOUNT": "unit price metadata, typed on some tabs",
+        "PRICE": "unit price as above, on the 23rd tab"
+      },
+      "row_total_column": "TOTAL QUANTITY",
+      "aggregate_rows": [
+        "TOTAL"
+      ],
+      "ignore_sheets": {
+        "SUMARY": "aggregate tab, note the missing M in the name"
+      },
       "notes": [
-        "waste is sparse, usually single units."
+        "waste is sparse, usually single units per branch. blank cells stay not recorded.",
+        "on the 14th tab the G YEAR header is typed GDYEAR. it sits exactly where G YEAR sits on the other tabs, that tab has no separate G YEAR column and it holds real numbers, so branch_aliases maps it to G YEAR. every use shows up as a note.",
+        "the tabs do not all carry the same extra columns. TOTAL QUANTITY is on most of them, AMOUNT and PRICE only sometimes, so ignore_columns is the union of what I saw."
       ]
     },
     {
@@ -74,23 +170,40 @@
       "file": "RETURNS  REPORT JUNE 2026.xlsx",
       "fact": "returns",
       "grid": "day",
-      "period": { "year": 2026, "month": 6 },
-      "expected_days": { "from": 1, "to": 6 },
-      "day_sheet": { "regex": "^(\\d{1,2})(?:ST|ND|RD|TH)?\\s*(?:JUN|JUNE)?\\s*$", "fix_letter_O": false },
-      "header_search_rows": 1,
+      "period": {
+        "year": 2026,
+        "month": 6
+      },
+      "expected_days": {
+        "from": 1,
+        "to": 6
+      },
+      "day_sheet": {
+        "regex": "^(\\d{1,2})(?:ST|ND|RD|TH)?\\s*(?:JUN|JUNE)?\\s*$",
+        "fix_letter_O": false
+      },
+      "header_search_rows": 3,
       "item_header": "ITEM",
       "branch_aliases": {},
-      "ignore_columns": {},
-      "row_total_column": "",
-      "aggregate_rows": [],
+      "ignore_columns": {
+        "TOTAL": "sum of the branch cells, and every value in it is a typed 0 next to blank branch cells"
+      },
+      "row_total_column": "TOTAL",
+      "aggregate_rows": [
+        "TOTAL"
+      ],
       "ignore_sheets": {},
       "notes": [
-        "these 6 tabs look empty but i have only checked the first one properly."
+        "every product row on all 6 tabs was blank when I wrote this contract. each row has a typed 0 in its TOTAL cell. so this source loads 0 rows and the report shows the gap. I keep the source in the run on purpose, dropping it would hide a real problem with the data.",
+        "the double space in the file name is part of the real name so I keep it in the path."
       ]
     }
   ],
   "open_questions": [
-    "the unit of the numbers is not written anywhere in the files.",
-    "the dispatch variance table on the right of the tabs is not mapped yet."
+    "the unit of the day tab numbers is not stated anywhere in the sources. i store them as recorded.",
+    "production items show up with and without the BS prefix in the sales files. cannot be proven either way.",
+    "whether the empty first six days of returns means nothing came back or it is recorded elsewhere.",
+    "KITCHEN is an item row on every tab. if it ever carries numbers i am not sure what it is.",
+    "the two weekly sales files are a completely different shape. they need their own source type and i have not written it yet."
   ]
 }
