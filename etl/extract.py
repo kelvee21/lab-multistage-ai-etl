@@ -1,4 +1,4 @@
-"""Reader for the day tab shape of source file.
+"""Readers for the two shapes of source file.
 
 both give back plain dicts with provenance, so nothing downstream needs to know
 which file a number came from. anything we cannot read goes to quarantine with a
@@ -53,7 +53,10 @@ def extract_all(contract: dict, raw_dir: Path) -> ExtractionResult:
             raise ExtractionError(
                 f"source {src['id']!r}: file not found in {raw_dir}: {src['file']}"
             )
-        _extract_day_grid(src, path, result, contract["branch_headers"])
+        if src["grid"] == "day":
+            _extract_day_grid(src, path, result, contract["branch_headers"])
+        else:
+            _extract_transactions(src, path, result)
     return result
 
 
@@ -313,3 +316,163 @@ def _read_day_sheet(src, ws, date, branch_headers, aliases, ignore_cols,
         ))
 
     return rows, quars, notes, values_seen
+
+
+# --------------------------------------------------------------------------- #
+# transaction sources: the two weekly sales workbooks
+# --------------------------------------------------------------------------- #
+
+def _extract_transactions(src, path, result):
+    target = src["sheet"]
+    ignore_sheets = {norm_text(k) for k in (src.get("ignore_sheets") or {})}
+    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    try:
+        if target not in wb.sheetnames:
+            raise ExtractionError(
+                f"source {src['id']!r}: contract-required sheet {target!r} not in {src['file']}"
+            )
+        sheet_info = result.sheets.setdefault(src["id"], {})
+        for sheet_name in wb.sheetnames:
+            if sheet_name != target and norm_text(sheet_name) in ignore_sheets:
+                sheet_info[sheet_name] = "ignored_by_contract"
+
+        rows, quars, data_quars = _read_transactions(
+            src, wb[target], src.get("header_search_rows", 3)
+        )
+        sheet_info[target] = "transactions"
+        result.rows.extend(rows)
+        result.quarantines.extend(quars)
+        result.notes.append(_note(
+            "info", src["id"], target,
+            f"read {len(rows) + data_quars} data rows from {target!r}; {len(rows)} accepted",
+        ))
+    finally:
+        wb.close()
+
+
+def _read_transactions(src, ws, header_search_rows=3):
+    """Find the header row (the sales grids start with a blank row, so it is on
+    row 2), map the contract columns, then read the rows below it."""
+    rows_iter = ws.iter_rows(values_only=True)
+    grid = [tuple(r) for r in ws.iter_rows(values_only=True)]
+
+    required = [f for f in ("date", "product", "branch", "qty")
+                if src["columns"].get(f) is not None]
+    header_idx = None
+    positions: dict[str, Optional[int]] = {}
+    within = grid[: max(header_search_rows, 1)]
+    for idx, row in enumerate(within):
+        cell_lookup = {
+            norm_text(cell): i for i, cell in enumerate(row) if cell is not None
+        }
+        mapping: dict[str, Optional[int]] = {}
+        missing = []
+        for fieldx, header_name in src["columns"].items():
+            idx_hit = None if header_name is None else cell_lookup.get(norm_text(header_name))
+            mapping[fieldx] = idx_hit
+            if idx_hit is None and fieldx in required:
+                missing.append(header_name)
+        if not missing:
+            header_idx = idx
+            positions = mapping
+            break
+    if header_idx is None:
+        raise ExtractionError(
+            f"source {src['id']!r}: required columns "
+            f"{[src['columns'][f] for f in required]} not found in the first "
+            f"{header_search_rows} rows of {ws.title!r}"
+        )
+
+    colmap = positions
+
+    rows: list[dict] = []
+    quars: list[dict] = []
+    operations = src.get("operation_accept") or None
+    accept = {op.upper() for op in operations} if operations else None
+    fmt = src["date_format"]
+
+    for row in grid[header_idx + 1:]:
+        if not row or all(cell is None for cell in row):
+            continue
+
+        def field(field_name):
+            idx = colmap.get(field_name)
+            return row[idx] if idx is not None and idx < len(row) else None
+
+        if accept is not None:
+            operation = norm_label(field("operation"))
+            if operation.upper() not in accept:
+                quars.append(_quarantine(
+                    "operation_not_sale", src, ws.title,
+                    detail=f"operation {operation!r} is outside the contract's accepted set",
+                ))
+                continue
+
+        date, date_err = parse_tx_date(field("date"), fmt)
+        if date is None:
+            quars.append(_quarantine("bad_date", src, ws.title, detail=str(date_err)))
+            continue
+
+        product = norm_text(field("product"))
+        if product == "":
+            quars.append(_quarantine(
+                "missing_product", src, ws.title, date=date,
+                detail="transaction without an item name",
+            ))
+            continue
+
+        branch = norm_text(field("branch"))
+        if branch == "":
+            quars.append(_quarantine(
+                "missing_branch", src, ws.title, date=date, product=product,
+                detail="transaction without a location/branch",
+            ))
+            continue
+
+        qty, qty_err = parse_qty(field("qty"))
+        if qty_err:
+            quars.append(_quarantine(
+                "non_numeric_qty", src, ws.title, date=date, product=product,
+                branch=branch, detail=str(qty_err),
+            ))
+            continue
+        if qty is None:
+            quars.append(_quarantine(
+                "missing_quantity", src, ws.title, date=date, product=product,
+                branch=branch, detail="transaction without a quantity",
+            ))
+            continue
+        if qty < 0:
+            quars.append(_quarantine(
+                "negative_qty", src, ws.title, date=date, product=product,
+                branch=branch, detail=f"qty {qty}",
+            ))
+            continue
+
+        amount, amount_err = parse_qty(field("amount"))
+        if (amount_err is None) and (amount is not None) and amount < 0:
+            quars.append(_quarantine(
+                "negative_amount", src, ws.title, date=date,
+                product=product, branch=branch, detail=f"amount {amount}",
+            ))
+            amount = None  # row is good data; only the amount is rejected
+        elif amount_err:
+            quars.append(_quarantine(
+                "amount_non_numeric", src, ws.title, date=date,
+                product=product, branch=branch, detail=str(amount_err),
+            ))
+            amount = None
+
+        rows.append({
+            "fact": src["fact"], "source_id": src["id"], "date": date,
+            "product": product, "branch": branch, "qty": qty,
+            "amount": amount, "partner": norm_label(field("partner")) or None,
+            "operation": norm_label(field("operation")) or None,
+            "source_file": src["file"], "source_sheet": ws.title,
+        })
+
+    data_reasons = {
+        "bad_date", "missing_product", "missing_branch", "missing_quantity",
+        "non_numeric_qty", "negative_qty", "operation_not_sale",
+    }
+    return rows, quars, sum(1 for q in quars if q["reason"] in data_reasons)
