@@ -9,11 +9,12 @@ data/raw/
 data/processed/
 runs/*.log
 
-# Generated report files, not source
-reports/*.docx
+# The report is the deliverable and is committed. The pdf, the diagram image
+# and any build script are not.
 reports/*.pdf
 reports/*.png
 reports/*.py
+!reports/ai_workflow_lab_report.docx
 
 # my own prep notes, not part of the lab
 docs/PRESENTATION.md
